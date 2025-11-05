@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ozon 运营报表</title>
+    <style>
+      body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif}
+      .container{max-width:100%;padding:16px}
+      .toolbar{display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+      .toolbar input,.toolbar select{padding:6px 8px;border:1px solid #e5e7eb;border-radius:6px}
+      .toolbar button{padding:8px 12px;background:#b87333;color:#fff;border:0;border-radius:6px;cursor:pointer}
+      .table-wrap{overflow:auto; max-height: calc(100vh - 180px); border:1px solid #e5e7eb; border-radius:8px;}
+      table{border-collapse:collapse;table-layout:fixed; width:max-content; min-width:100%;}
+      th,td{border:1px solid #e5e7eb;padding:6px 8px;vertical-align:top; background:#fff}
+      th{background:#fdebd2; position:sticky; top:0; z-index:3}
+      .sticky-col{position:sticky; left:0; z-index:4; background:#fff}
+      .day-col{min-width:110px}
+      .th-inner{position:relative}
+      .col-resizer{position:absolute; right:-3px; top:0; width:6px; height:100%; cursor:col-resize; user-select:none}
+      .meta{color:#666;font-size:12px}
+      .cell-grid{display:grid;grid-template-columns:repeat(1,1fr);gap:2px;font-size:11px;line-height:1.15}
+      .cell-grid div{display:flex;justify-content:space-between;gap:6px}
+      .expand{cursor:pointer;color:#2563eb}
+      .nowrap{white-space:nowrap}
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- React via CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/dayjs@1/dayjs.min.js"></script>
+    <script src="https://unpkg.com/axios@1/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <!-- Babel 在浏览器内转换 JSX（开发联调用） -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+      const { useEffect, useMemo, useState } = React
+      function pct(v){ return isFinite(v) ? (v*100).toFixed(2)+'%' : '-' }
+      function money(v){ return isFinite(v) ? v.toFixed(2) : '-' }
+
+      function ReportTable({ rows }){
+        const [expanded, setExpanded] = useState({})
+        const toggle = (k) => setExpanded(s => ({...s, [k]: !s[k]}))
+        const dayHeaders = useMemo(() => (rows[0]?.days ?? []).map(d=>d.date), [rows])
+
+        // 列宽（可拖动）
+        const [colW, setColW] = useState({
+          cat: 110,
+          nameCn: 140,
+          sku: 160,
+          sumQty: 110,
+          sumAmt: 120,
+          sumAd: 110,
+          ozid: 120,
+          day: 120,
+        })
+        const stickyLeft = useMemo(()=>{
+          const arr = []
+          arr[0] = 0
+          arr[1] = arr[0] + colW.cat
+          arr[2] = arr[1] + colW.nameCn
+          arr[3] = arr[2] + colW.sku
+          arr[4] = arr[3] + colW.sumQty
+          arr[5] = arr[4] + colW.sumAmt
+          arr[6] = arr[5] + colW.sumAd
+          arr[7] = arr[6] + colW.ozid
+          return arr
+        }, [colW])
+
+        const startResize = (key, e) => {
+          e.preventDefault()
+          const startX = e.clientX
+          const startW = colW[key] ?? colW.day
+          const onMove = (ev) => {
+            const dx = ev.clientX - startX
+            const next = Math.max(80, startW + dx)
+            setColW(w => ({ ...w, [key]: next }))
+          }
+          const onUp = () => {
+            window.removeEventListener('mousemove', onMove)
+            window.removeEventListener('mouseup', onUp)
+          }
+          window.addEventListener('mousemove', onMove)
+          window.addEventListener('mouseup', onUp)
+        }
+        return (
+          <div className="table-wrap"><table>
+            <thead>
+              <tr>
+                <th className="sticky-col" style={{left:0, width:colW.cat, minWidth:colW.cat}}><div className="th-inner">大类目<span className="col-resizer" onMouseDown={(e)=>startResize('cat', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[1], width:colW.nameCn, minWidth:colW.nameCn}}><div className="th-inner">中文类目<span className="col-resizer" onMouseDown={(e)=>startResize('nameCn', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[2], width:colW.sku, minWidth:colW.sku}}><div className="th-inner">类目名称<span className="col-resizer" onMouseDown={(e)=>startResize('sku', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[3], width:colW.sumQty, minWidth:colW.sumQty}}><div className="th-inner">12日销量<span className="col-resizer" onMouseDown={(e)=>startResize('sumQty', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[4], width:colW.sumAmt, minWidth:colW.sumAmt}}><div className="th-inner">12日销售额<span className="col-resizer" onMouseDown={(e)=>startResize('sumAmt', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[5], width:colW.sumAd, minWidth:colW.sumAd}}><div className="th-inner">12日广告占比<span className="col-resizer" onMouseDown={(e)=>startResize('sumAd', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[6], width:colW.ozid, minWidth:colW.ozid}}><div className="th-inner">Ozon ID<span className="col-resizer" onMouseDown={(e)=>startResize('ozid', e)} /></div></th>
+                {dayHeaders.map((d,i)=>(
+                  <th key={d} className="day-col" style={{width:colW.day, minWidth:colW.day}}><div className="th-inner">第{i+1}天<br/><span className="meta">{d}</span><span className="col-resizer" onMouseDown={(e)=>startResize('day', e)} /></div></th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r=>{
+                const key = `${r.platform}-${r.account}-${r.ozon_id}`
+                const isOpen = !!expanded[key]
+                return (
+                  <React.Fragment key={key}>
+                    <tr>
+                      <td className="sticky-col" style={{left:0, width:colW.cat, minWidth:colW.cat}}>{r.category}</td>
+                      <td className="sticky-col meta" style={{left:stickyLeft[1], width:colW.nameCn, minWidth:colW.nameCn}}>{r.name_cn}</td>
+                      <td className="sticky-col" style={{left:stickyLeft[2], width:colW.sku, minWidth:colW.sku}}>{r.sku}</td>
+                      <td className="sticky-col" style={{left:stickyLeft[3], width:colW.sumQty, minWidth:colW.sumQty}}>{r.summary_12d.sales_qty}</td>
+                      <td className="sticky-col" style={{left:stickyLeft[4], width:colW.sumAmt, minWidth:colW.sumAmt}}>{money(r.summary_12d.sales_amount)}</td>
+                      <td className="sticky-col" style={{left:stickyLeft[5], width:colW.sumAd, minWidth:colW.sumAd}}>{pct(r.summary_12d.ad_ratio)}</td>
+                      <td className="sticky-col nowrap" style={{left:stickyLeft[6], width:colW.ozid, minWidth:colW.ozid}}>{r.ozon_id} <span className="expand" onClick={()=>toggle(key)}>{isOpen?'收起':'展开'}</span></td>
+                      {r.days.map(d=> (
+                        <td key={d.date} className="day-col" style={{width:colW.day, minWidth:colW.day}}>
+                          <div className="cell-grid">
+                            <div><span className="meta">销量</span><span>{d.total_sales_qty}</span></div>
+                            <div><span className="meta">广告</span><span>{d.ad_sales_qty}</span></div>
+                            <div><span className="meta">自然</span><span>{d.natural_sales_qty}</span></div>
+                            <div><span className="meta">销售额</span><span>{money(d.sales_amount)}</span></div>
+                            <div><span className="meta">售价</span><span>{money(d.avg_price)}</span></div>
+                            <div><span className="meta">成本</span><span>{money(d.goods_cost)}</span></div>
+                            <div><span className="meta">销售成本</span><span>{money(d.sales_cost)}</span></div>
+                            <div><span className="meta">广告费</span><span>{money(d.ad_spend)}</span></div>
+                            <div><span className="meta">回款</span><span>{money(d.payout)}</span></div>
+                            <div><span className="meta">利润</span><span>{money(d.profit)}</span></div>
+                            <div><span className="meta">库存</span><span>{d.inventory}</span></div>
+                            <div><span className="meta">广告占比</span><span>{pct(d.ad_ratio)}</span></div>
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={7 + dayHeaders.length}>
+                          <div><strong>详细</strong>：<span className="meta" style={{marginLeft:8}}>12日广告销量占比：{pct(r.summary_12d.ad_sales_ratio)}</span></div>
+                          <div className="meta">平台：{r.platform}，账号：{r.account}</div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </tbody>
+          </table></div>
+        )
+      }
+
+      function App(){
+        const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'))
+        const [platform, setPlatform] = useState('ozon')
+        const [account, setAccount] = useState('')
+        const [loading, setLoading] = useState(false)
+        const [data, setData] = useState(null)
+        const [page, setPage] = useState(1)
+        const pageSize = 20
+
+        const fetchData = async () => {
+          setLoading(true)
+          try{
+            const days = Number(document.getElementById('daysInput')?.value || 0) || undefined
+            const rsp = await axios.get('http://localhost:8009/api/report', { params: { date, platform: platform||undefined, account: account||undefined, days, page, page_size: pageSize } })
+            setData(rsp.data)
+          } finally {
+            setLoading(false)
+          }
+        }
+        useEffect(()=>{ fetchData() }, [date, platform, account, page])
+        const rows = useMemo(()=> data?.rows ?? [], [data])
+
+        return (
+          <div className="container">
+            <h2>Ozon 运营报表（按商品、按日透视）</h2>
+            <div className="toolbar">
+              <label>选择日期：<input type="date" value={date} onChange={e=>setDate(e.target.value)} /></label>
+              <label>平台：
+                <select value={platform} onChange={e=>setPlatform(e.target.value)}>
+                  <option value="">全部</option>
+                  <option value="ozon">ozon</option>
+                </select>
+              </label>
+              <label>账号：<input value={account} onChange={e=>setAccount(e.target.value)} placeholder="可选" /></label>
+              <label>展示天数：<input id="daysInput" type="number" min="1" max="62" defaultValue={12} style={{width:'80px'}} /></label>
+              <button disabled={loading} onClick={fetchData}>{loading ? '加载中...' : '刷新'}</button>
+              <button disabled={!data || loading} onClick={() => {
+                if(!data){ alert('暂无数据'); return }
+                const rows = data.rows || []
+                // 汇总表
+                const summary = rows.map(r => ({
+                  '大类目': r.category,
+                  '中文类目': r.name_cn,
+                  '类目名称': r.sku,
+                  '12日销量': r.summary_12d?.sales_qty ?? 0,
+                  '12日销售额': r.summary_12d?.sales_amount ?? 0,
+                  '12日广告占比': r.summary_12d?.ad_ratio ?? 0,
+                  '12日广告销量占比': r.summary_12d?.ad_sales_ratio ?? 0,
+                  'OzonID': r.ozon_id,
+                  '平台': r.platform,
+                  '账号': r.account,
+                }))
+                const ws1 = XLSX.utils.json_to_sheet(summary)
+                // 按日明细
+                const details = []
+                rows.forEach(r => {
+                  (r.days||[]).forEach(d => {
+                    details.push({
+                      '大类目': r.category,
+                      '中文类目': r.name_cn,
+                      '类目名称': r.sku,
+                      'OzonID': r.ozon_id,
+                      '平台': r.platform,
+                      '账号': r.account,
+                      '日期': d.date,
+                      '销量': d.total_sales_qty,
+                      '广告销量': d.ad_sales_qty,
+                      '自然销量': d.natural_sales_qty,
+                      '销售额': d.sales_amount,
+                      '售价': d.avg_price,
+                      '成本': d.goods_cost,
+                      '销售成本': d.sales_cost,
+                      '广告费': d.ad_spend,
+                      '回款': d.payout,
+                      '利润': d.profit,
+                      '库存': d.inventory,
+                      '广告占比': d.ad_ratio,
+                    })
+                  })
+                })
+                const ws2 = XLSX.utils.json_to_sheet(details)
+                // 宽表（与页面一致：左侧信息 + 每天一组多指标列）
+                const metricDefs = [
+                  { key: 'total_sales_qty', label: '销量' },
+                  { key: 'ad_sales_qty', label: '广告' },
+                  { key: 'natural_sales_qty', label: '自然' },
+                  { key: 'sales_amount', label: '销售额' },
+                  { key: 'avg_price', label: '售价' },
+                  { key: 'goods_cost', label: '成本' },
+                  { key: 'sales_cost', label: '销售成本' },
+                  { key: 'ad_spend', label: '广告费' },
+                  { key: 'payout', label: '回款' },
+                  { key: 'profit', label: '利润' },
+                  { key: 'inventory', label: '库存' },
+                  { key: 'ad_ratio', label: '广告占比' },
+                ]
+                // 左侧固定列 + 12日汇总分组（更贴近网页：汇总作为分组标题）
+                const baseLeft = ['大类目','中文类目','类目名称','OzonID','平台','账号']
+                const sumGroup = ['12日销量','12日销售额','12日广告占比','12日广告销量占比']
+                const header1 = [...baseLeft, '12日汇总']
+                const header2 = baseLeft.map(()=> '')
+                sumGroup.forEach((h, idx)=>{ header1.push(idx === 0 ? '' : ''); header2.push(h) })
+                const dayDates = (rows[0]?.days ?? []).map(d=>d.date)
+                for(let i=0;i<dayDates.length;i++){
+                  header1.push(`第${i+1}天`) // 合并表头左上层
+                  for(let j=1;j<metricDefs.length;j++){ header1.push('') }
+                  metricDefs.forEach(m => header2.push(m.label))
+                }
+                const aoa = [header1, header2]
+                for(const r of rows){
+                  const arr = [r.category, r.name_cn, r.sku, r.ozon_id, r.platform, r.account]
+                  // 12日汇总四列
+                  arr.push(
+                    r.summary_12d?.sales_qty ?? 0,
+                    r.summary_12d?.sales_amount ?? 0,
+                    r.summary_12d?.ad_ratio ?? 0,
+                    r.summary_12d?.ad_sales_ratio ?? 0,
+                  )
+                  for(let i=0;i<dayDates.length;i++){
+                    const d = (r.days || [])[i] || {}
+                    metricDefs.forEach(md => arr.push(d[md.key] ?? 0))
+                  }
+                  aoa.push(arr)
+                }
+                const ws3 = XLSX.utils.aoa_to_sheet(aoa)
+                const merges = []
+                // 上方两行：左侧固定列纵向合并
+                for(let c=0;c<baseLeft.length;c++){ merges.push({ s:{ r:0, c }, e:{ r:1, c } }) }
+                // 12日汇总分组横向合并
+                const sumStart = baseLeft.length
+                merges.push({ s:{ r:0, c: sumStart }, e:{ r:0, c: sumStart + sumGroup.length - 1 } })
+                // 每天的横向合并
+                for(let i=0;i<dayDates.length;i++){
+                  const start = baseLeft.length + sumGroup.length + i*metricDefs.length
+                  const end = start + metricDefs.length - 1
+                  merges.push({ s:{ r:0, c:start }, e:{ r:0, c:end } })
+                }
+                ws3['!merges'] = merges
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws1, '汇总')
+                XLSX.utils.book_append_sheet(wb, ws2, '按日明细')
+                XLSX.utils.book_append_sheet(wb, ws3, '宽表')
+                const days = Number(document.getElementById('daysInput')?.value || data.days_count)
+                const fname = `Ozon运营报表_${data.start}_${data.end}_${days}天.xlsx`
+                XLSX.writeFile(wb, fname)
+              }}>导出Excel</button>
+              <button disabled={!data || loading} onClick={async () => {
+                if(!data){ alert('暂无数据'); return }
+                const rows = data.rows || []
+                const wb = new ExcelJS.Workbook()
+                const ws = wb.addWorksheet('宽表(样式)')
+
+                const border = {style:'thin', color:{argb:'FF999999'}}
+                const headerFont = {bold:true, color:{argb:'FFCC0000'}} // 红色标题
+                const headCenter = {vertical:'middle', horizontal:'center', wrapText:true}
+                const dayFill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFFDEBD2'}} // 淡橙背景
+
+                // 列定义
+                const metrics = ['销量','广告','自然','销售额','售价','成本','销售成本','广告费','回款','利润','库存','广告占比']
+                const metricKeys = ['total_sales_qty','ad_sales_qty','natural_sales_qty','sales_amount','avg_price','goods_cost','sales_cost','ad_spend','payout','profit','inventory','ad_ratio']
+                const leftFixed = ['大类目','中文类目','类目名称']
+                const sumHeaders = ['12日销量','12日销售额','12日广告占比']
+                const leftTail = ['Ozon ID','产品图片','类别']
+
+                // 动态天数
+                const dayDates = (rows[0]?.days ?? []).map(d=>d.date)
+
+                // 列宽
+                const baseWidths = [12,16,22,10,10,10,14,14,10]
+                const cols = baseWidths.map(w=>({ width: w }))
+                // 追加日列宽（每个“天”仅一列）
+                for(let i=0;i<dayDates.length;i++){ cols.push({ width: 12 }) }
+                ws.columns = cols
+
+                // 表头两行
+                // Row1 + Row2 headers
+                const header1 = [...leftFixed, '12日汇总', '', '', ...leftTail]
+                const header2 = leftFixed.map(()=> '')
+                header2.push(...sumHeaders)
+                header2.push('', '', '') // OzonID/图片/类别 第二行占位
+                for(let i=0;i<dayDates.length;i++){
+                  const dText = dayDates[i] ? `第${i+1}天\n${dayDates[i]}` : `第${i+1}天`
+                  header1.push(dText)
+                  header2.push('') // 每个“天”仅占一列，第二行留空用于纵向合并
+                }
+                ws.addRow(header1)
+                ws.addRow(header2)
+
+                // 合并：左侧固定3列 + OzonID/图片/类别纵向合并
+                const leftFixedCount = leftFixed.length
+                const sumCount = sumHeaders.length
+                const leftTailCount = leftTail.length
+                for(let c=1; c<=leftFixedCount; c++){ ws.mergeCells(1,c,2,c) }
+                for(let c=leftFixedCount + sumCount + 1; c <= leftFixedCount + sumCount + leftTailCount; c++){ ws.mergeCells(1,c,2,c) }
+                // 合并：12日汇总横向合并
+                const sumStart = leftFixedCount + 1
+                ws.mergeCells(1, sumStart, 1, sumStart + sumCount - 1)
+                // 合并：每日列纵向合并（1行与2行）
+                const dayStartCol = leftFixedCount + sumCount + leftTailCount + 1
+                for(let i=0;i<dayDates.length;i++){
+                  const col = dayStartCol + i
+                  ws.mergeCells(1,col,2,col)
+                }
+                // 样式：首行标题红色、居中、边框
+                for(let c=1;c<=ws.columns.length;c++){
+                  const cell1 = ws.getCell(1,c); cell1.font = headerFont; cell1.alignment = headCenter; cell1.border = {top:border,left:border,right:border,bottom:border}
+                  const cell2 = ws.getCell(2,c); cell2.alignment = headCenter; cell2.border = {top:border,left:border,right:border,bottom:border}
+                }
+                // 样式：每日列背景
+                for(let i=0;i<dayDates.length;i++){
+                  const col = dayStartCol + i
+                  ws.getCell(1,col).fill = dayFill
+                  ws.getCell(2,col).fill = dayFill
+                }
+
+                // 数据块（每个商品 = 多行）
+                const blockRows = metrics.length
+                let rowPtr = 3
+                for(const r of rows){
+                  // 左固定列
+                  ws.mergeCells(rowPtr,1,rowPtr+blockRows-1,1); ws.getCell(rowPtr,1).value = r.category
+                  ws.mergeCells(rowPtr,2,rowPtr+blockRows-1,2); ws.getCell(rowPtr,2).value = r.name_cn
+                  ws.mergeCells(rowPtr,3,rowPtr+blockRows-1,3); ws.getCell(rowPtr,3).value = r.sku
+                  // 12日汇总三列
+                  ws.mergeCells(rowPtr,4,rowPtr+blockRows-1,4); ws.getCell(rowPtr,4).value = r.summary_12d?.sales_qty ?? 0
+                  ws.mergeCells(rowPtr,5,rowPtr+blockRows-1,5); ws.getCell(rowPtr,5).value = r.summary_12d?.sales_amount ?? 0
+                  ws.mergeCells(rowPtr,6,rowPtr+blockRows-1,6); ws.getCell(rowPtr,6).value = r.summary_12d?.ad_ratio ?? 0
+                  // 其余左侧
+                  ws.mergeCells(rowPtr,7,rowPtr+blockRows-1,7); ws.getCell(rowPtr,7).value = r.ozon_id
+                  ws.mergeCells(rowPtr,8,rowPtr+blockRows-1,8); ws.getCell(rowPtr,8).value = '' // 产品图片
+
+                  // 类别列每行赋值 + 日列数据
+                  for(let ri=0; ri<metrics.length; ri++){
+                    const row = ws.getRow(rowPtr + ri)
+                    row.getCell(9).value = metrics[ri]
+                    // 每天数据（每天仅一列，行代表指标）
+                    for(let di=0; di<dayDates.length; di++){
+                      const day = (r.days||[])[di] || {}
+                      let val = day[ metricKeys[ri] ] ?? 0
+                      const col = dayStartCol + di
+                      const cell = row.getCell(col)
+                      if(metricKeys[ri] === 'ad_ratio'){ cell.value = val; cell.numFmt = '0.00%'}
+                      else if(['avg_price','goods_cost','sales_cost','ad_spend','payout','profit','sales_amount'].includes(metricKeys[ri])){ cell.value = Number(val)||0; cell.numFmt = '#,##0.00' }
+                      else { cell.value = Number(val)||0 }
+                    }
+                  }
+
+                // 统一边框/对齐
+                  for(let rIdx=rowPtr; rIdx<rowPtr+blockRows; rIdx++){
+                    const row = ws.getRow(rIdx)
+                    for(let c=1;c<=ws.columns.length;c++){
+                      const cell = row.getCell(c)
+                      const isDayCol = c >= dayStartCol
+                      cell.alignment = {vertical:'middle', horizontal: isDayCol ? 'right' : 'center', wrapText:true}
+                      cell.border = {top:border,left:border,right:border,bottom:border}
+                    }
+                  }
+
+                  rowPtr += blockRows
+                }
+
+                // 设置左侧 12日广告占比 列为百分比
+                for(let r=3; r<rowPtr; r++){
+                  const c = 6; const cell = ws.getCell(r,c); if(typeof cell.value === 'number'){ cell.numFmt = '0.00%' }
+                }
+
+                const daysVal = Number(document.getElementById('daysInput')?.value || data.days_count)
+                const fname = `Ozon运营报表_宽表样式_${data.start}_${data.end}_${daysVal}天.xlsx`
+                const buffer = await wb.xlsx.writeBuffer()
+                saveAs(new Blob([buffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fname)
+              }}>导出宽表(样式)</button>
+              {data && (<span className="meta">时间范围：{data.start} ~ {data.end}（{data.days_count}天） | 共 {data.total} 个商品</span>)}
+            </div>
+            <ReportTable rows={rows} />
+            {data && (
+              <div className="toolbar" style={{justifyContent:'flex-end'}}>
+                <button onClick={()=>setPage(p=>Math.max(1, p-1))} disabled={page<=1 || loading}>上一页</button>
+                <span className="meta">第 {page} / {Math.max(1, Math.ceil((data.total||0)/pageSize))} 页</span>
+                <button onClick={()=>setPage(p=>p+1)} disabled={loading || page >= Math.ceil((data.total||0)/pageSize)}>下一页</button>
+              </div>
+            )}
+          </div>
+        )
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+    </script>
+  </body>
+  </html>
