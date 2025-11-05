@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, Query
+import re
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import get_collection
@@ -57,8 +58,9 @@ async def _fetch_docs(
     account: Optional[str],
 ) -> List[Dict[str, Any]]:
     coll = get_collection()
-    filters: Dict[str, Any] = {}
-    # 日期字段兼容：字符串，生成该范围内所有可能格式
+    # 组合为 AND，内部有 OR 子条件
+    and_filters: List[Dict[str, Any]] = []
+    # 日期字段兼容：同时支持 Date 类型范围过滤与字符串精确匹配
     def _fmt_v(d: date) -> List[str]:
         y = d.year
         m = d.month
@@ -67,18 +69,37 @@ async def _fetch_docs(
             f"{y}/{m}/{dd}",
             f"{y}/{m:02d}/{dd:02d}",
             f"{y}-{m:02d}-{dd:02d}",
+            f"{y}-{m}-{dd}",
         ]
-    dates: List[str] = []
+
+    str_dates: List[str] = []
     cur = start_d
     while cur <= end_d:
-        dates.extend(_fmt_v(cur))
+        str_dates.extend(_fmt_v(cur))
         cur = cur + timedelta(days=1)
-    filters["日期"] = {"$in": list(sorted(set(dates)))}
+    str_dates = list(sorted(set(str_dates)))
+
+    # Date 类型范围：包含 end_d 当天，采用 [start, end+1) 的半开区间更稳妥
+    start_dt = datetime.combine(start_d, datetime.min.time())
+    end_dt_next = datetime.combine(end_d, datetime.min.time()) + timedelta(days=1)
+
+    date_fields = ["日期", "date", "Date"]
+    date_or: List[Dict[str, Any]] = []
+    for f in date_fields:
+        date_or.append({f: {"$gte": start_dt, "$lt": end_dt_next}})
+        date_or.append({f: {"$in": str_dates}})
+    if date_or:
+        and_filters.append({"$or": date_or})
+
     if platform:
-        filters["平台"] = platform
+        plat_regex = re.compile(rf"^\s*{re.escape(platform)}\s*$", re.IGNORECASE)
+        and_filters.append({"$or": [{"平台": plat_regex}, {"platform": plat_regex}]})
     if account:
-        filters["账号"] = account
-    cursor = coll.find(filters)
+        acc_regex = re.compile(rf"^\s*{re.escape(account)}\s*$", re.IGNORECASE)
+        and_filters.append({"$or": [{"账号": acc_regex}, {"account": acc_regex}]})
+
+    final_filter: Dict[str, Any] = {"$and": and_filters} if and_filters else {}
+    cursor = coll.find(final_filter)
     return [doc async for doc in cursor]
 
 
@@ -87,6 +108,8 @@ def _doc_date(doc: Dict[str, Any]) -> Optional[date]:
     if not d:
         return None
     try:
+        if isinstance(d, datetime):
+            return d.date()
         return parse_any_date(str(d))
     except Exception:  # noqa: BLE001
         return None
@@ -195,6 +218,62 @@ def _build_row(days_order: List[date], docs: List[Dict[str, Any]]) -> ReportRow:
 @app.get("/api/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/debug-report")
+async def debug_report(
+    date_str: str,
+    platform: Optional[str] = None,
+    account: Optional[str] = None,
+    days: Optional[int] = None,
+):
+    end_d = parse_any_date(date_str)
+    if days is not None:
+        days = max(1, min(62, int(days)))
+        start_d = end_d - timedelta(days=days - 1)
+    else:
+        start_d = month_start(end_d)
+
+    # 构造与 _fetch_docs 相同的过滤器，附加计数
+    coll = get_collection()
+    # 日期部分
+    def _fmt_v(d: date) -> List[str]:
+        y, m, dd = d.year, d.month, d.day
+        return [f"{y}/{m}/{dd}", f"{y}/{m:02d}/{dd:02d}", f"{y}-{m:02d}-{dd:02d}", f"{y}-{m}-{dd}"]
+    str_dates: List[str] = []
+    cur = start_d
+    while cur <= end_d:
+        str_dates.extend(_fmt_v(cur))
+        cur = cur + timedelta(days=1)
+    str_dates = list(sorted(set(str_dates)))
+    start_dt = datetime.combine(start_d, datetime.min.time())
+    end_dt_next = datetime.combine(end_d, datetime.min.time()) + timedelta(days=1)
+    date_fields = ["日期", "date", "Date"]
+    date_or: List[Dict[str, Any]] = []
+    for f in date_fields:
+        date_or.append({f: {"$gte": start_dt, "$lt": end_dt_next}})
+        date_or.append({f: {"$in": str_dates}})
+    filter_parts: List[Dict[str, Any]] = []
+    if date_or:
+        filter_parts.append({"$or": date_or})
+    if platform:
+        plat_regex = re.compile(rf"^\s*{re.escape(platform)}\s*$", re.IGNORECASE)
+        filter_parts.append({"$or": [{"平台": plat_regex}, {"platform": plat_regex}]})
+    if account:
+        acc_regex = re.compile(rf"^\s*{re.escape(account)}\s*$", re.IGNORECASE)
+        filter_parts.append({"$or": [{"账号": acc_regex}, {"account": acc_regex}]})
+    final_filter: Dict[str, Any] = {"$and": filter_parts} if filter_parts else {}
+
+    total = await coll.count_documents(final_filter)
+    sample = await coll.find_one(final_filter)
+    return {
+        "start": str(start_d),
+        "end": str(end_d),
+        "filter": str(final_filter),
+        "str_dates": str_dates[:5],
+        "total_match": int(total),
+        "sample_keys": list(sample.keys()) if sample else [],
+    }
 
 
 @app.get("/api/report", response_model=ReportResponse)

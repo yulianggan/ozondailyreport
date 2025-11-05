@@ -15,12 +15,17 @@ def get_mongo_client() -> AsyncIOMotorClient:
     return _client
 
 
-def get_db(db_name: str = "ozondatas") -> AsyncIOMotorDatabase:
+def get_db(db_name: str | None = None) -> AsyncIOMotorDatabase:
+    if db_name is None:
+        db_name = os.getenv("MONGODB_DB", "ozondatas")
     return get_mongo_client()[db_name]
 
 
 def get_collection(
-    db_name: str = "ozondatas", collection_name: str = "operation_report"
+    db_name: str | None = None, collection_name: str | None = None
 ) -> AsyncIOMotorCollection:
+    if db_name is None:
+        db_name = os.getenv("MONGODB_DB", "ozondatas")
+    if collection_name is None:
+        collection_name = os.getenv("MONGODB_COLL", os.getenv("MONGODB_COLLECTION", "operation_report"))
     return get_db(db_name)[collection_name]
-

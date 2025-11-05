@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ozon-backend
+    environment:
+      # 默认连接宿主机 MongoDB（无鉴权）
+      - MONGODB_URI=${MONGODB_URI:-mongodb://host.docker.internal:27017}
+      - MONGODB_DB=${MONGODB_DB:-ozondatas}
+      - MONGODB_COLL=${MONGODB_COLL:-operation_report}
+    ports:
+      - "8009:8009"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ozon-frontend
+    depends_on:
+      - backend
+    environment:
+      - PORT=3051
+    ports:
+      - "3051:3051"
+    restart: unless-stopped
+
+# 如果你需要容器化 MongoDB，可恢复下面配置：
+#  mongo:
+#    image: mongo:6
+#    container_name: ozon-mongo
+#    restart: unless-stopped
+#    ports:
+#      - "27017:27017"
+#    volumes:
+#      - mongo_data:/data/db
+#    healthcheck:
+#      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+
+#volumes:
+#  mongo_data:

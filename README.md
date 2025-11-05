@@ -53,3 +53,24 @@ npm run dev
 - 数据库日期字段支持 `YYYY-MM-DD` 或 `YYYY/M/D` 字符串；如有差异可在 `backend/app/main.py` 的 `_fetch_docs` 与 `_doc_date` 中调整。
 - 若部分字段缺失，后端使用 0 或推导（如自然销量=总销量-模板-搜索）以保证稳定渲染。
 
+## 使用 Docker Compose 部署
+
+前置：安装 Docker Desktop（或 Docker Engine + Compose）。
+
+1) 构建并启动
+
+```
+./compose-up.sh
+# 或者（手动执行）
+docker compose up -d --build
+```
+
+2) 访问
+
+- 前端：`http://localhost:3051`（Docker 内采用零依赖静态服务器，无需 npm install）
+- 后端：`http://localhost:8009/api/health`
+
+说明：
+- 默认连接宿主机 MongoDB（无鉴权）。如需变更：
+  - `MONGODB_URI="mongodb://<你的地址>:27017" docker compose up -d`
+  - `MONGODB_DB`（默认 `ozondatas`），`MONGODB_COLL`（默认 `operation_report`）

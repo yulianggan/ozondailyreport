@@ -1,0 +1,17 @@
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.venv
+node_modules
+npm-debug.log*
+yarn-error.log*
+dist
+build
+.DS_Store
+*.log
+frontend/.vite
+frontend/node_modules
+backend/.venv
+backend/**/*.pyc
+backend/.mypy_cache
+
