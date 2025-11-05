@@ -16,7 +16,7 @@
       th{background:#fdebd2; position:sticky; top:0; z-index:3}
       .sticky-col{position:sticky; left:0; z-index:4; background:#fff}
       .day-col{min-width:110px}
-      .th-inner{position:relative}
+      .th-inner{position:relative; white-space:normal; word-break:break-all}
       .col-resizer{position:absolute; right:-3px; top:0; width:6px; height:100%; cursor:col-resize; user-select:none}
       .meta{color:#666;font-size:12px}
       .cell-grid{display:grid;grid-template-columns:repeat(1,1fr);gap:2px;font-size:11px;line-height:1.15}
@@ -78,7 +78,7 @@
           const startW = colW[key] ?? colW.day
           const onMove = (ev) => {
             const dx = ev.clientX - startX
-            const next = Math.max(80, startW + dx)
+            const next = Math.max(60, startW + dx)
             setColW(w => ({ ...w, [key]: next }))
           }
           const onUp = () => {
@@ -95,12 +95,12 @@
                 <th className="sticky-col" style={{left:0, width:colW.cat, minWidth:colW.cat}}><div className="th-inner">大类目<span className="col-resizer" onMouseDown={(e)=>startResize('cat', e)} /></div></th>
                 <th className="sticky-col" style={{left:stickyLeft[1], width:colW.nameCn, minWidth:colW.nameCn}}><div className="th-inner">中文类目<span className="col-resizer" onMouseDown={(e)=>startResize('nameCn', e)} /></div></th>
                 <th className="sticky-col" style={{left:stickyLeft[2], width:colW.sku, minWidth:colW.sku}}><div className="th-inner">类目名称<span className="col-resizer" onMouseDown={(e)=>startResize('sku', e)} /></div></th>
-                <th className="sticky-col" style={{left:stickyLeft[3], width:colW.sumQty, minWidth:colW.sumQty}}><div className="th-inner">12日销量<span className="col-resizer" onMouseDown={(e)=>startResize('sumQty', e)} /></div></th>
-                <th className="sticky-col" style={{left:stickyLeft[4], width:colW.sumAmt, minWidth:colW.sumAmt}}><div className="th-inner">12日销售额<span className="col-resizer" onMouseDown={(e)=>startResize('sumAmt', e)} /></div></th>
-                <th className="sticky-col" style={{left:stickyLeft[5], width:colW.sumAd, minWidth:colW.sumAd}}><div className="th-inner">12日广告占比<span className="col-resizer" onMouseDown={(e)=>startResize('sumAd', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[3], width:colW.sumQty, minWidth:colW.sumQty}}><div className="th-inner">汇总销量<span className="col-resizer" onMouseDown={(e)=>startResize('sumQty', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[4], width:colW.sumAmt, minWidth:colW.sumAmt}}><div className="th-inner">汇总销售额<span className="col-resizer" onMouseDown={(e)=>startResize('sumAmt', e)} /></div></th>
+                <th className="sticky-col" style={{left:stickyLeft[5], width:colW.sumAd, minWidth:colW.sumAd}}><div className="th-inner">汇总广告占比<span className="col-resizer" onMouseDown={(e)=>startResize('sumAd', e)} /></div></th>
                 <th className="sticky-col" style={{left:stickyLeft[6], width:colW.ozid, minWidth:colW.ozid}}><div className="th-inner">Ozon ID<span className="col-resizer" onMouseDown={(e)=>startResize('ozid', e)} /></div></th>
                 {dayHeaders.map((d,i)=>(
-                  <th key={d} className="day-col" style={{width:colW.day, minWidth:colW.day}}><div className="th-inner">第{i+1}天<br/><span className="meta">{d}</span><span className="col-resizer" onMouseDown={(e)=>startResize('day', e)} /></div></th>
+                  <th key={i} className="day-col" style={{width:colW.day, minWidth:colW.day}}><div className="th-inner">第{i+1}<br/><span className="meta">{typeof d==='string' ? d : '天'}</span><span className="col-resizer" onMouseDown={(e)=>startResize('day', e)} /></div></th>
                 ))}
               </tr>
             </thead>
@@ -117,7 +117,7 @@
                       <td className="sticky-col" style={{left:stickyLeft[3], width:colW.sumQty, minWidth:colW.sumQty}}>{r.summary_12d.sales_qty}</td>
                       <td className="sticky-col" style={{left:stickyLeft[4], width:colW.sumAmt, minWidth:colW.sumAmt}}>{money(r.summary_12d.sales_amount)}</td>
                       <td className="sticky-col" style={{left:stickyLeft[5], width:colW.sumAd, minWidth:colW.sumAd}}>{pct(r.summary_12d.ad_ratio)}</td>
-                      <td className="sticky-col nowrap" style={{left:stickyLeft[6], width:colW.ozid, minWidth:colW.ozid}}>{r.ozon_id} <span className="expand" onClick={()=>toggle(key)}>{isOpen?'收起':'展开'}</span></td>
+                      <td className="sticky-col" style={{left:stickyLeft[6], width:colW.ozid, minWidth:colW.ozid}}>{r.ozon_id} <span className="expand" onClick={()=>toggle(key)}>{isOpen?'收起':'展开'}</span></td>
                       {r.days.map(d=> (
                         <td key={d.date} className="day-col" style={{width:colW.day, minWidth:colW.day}}>
                           <div className="cell-grid">
@@ -165,20 +165,38 @@
         const fetchData = async () => {
           setLoading(true)
           try{
-            const days = Number(document.getElementById('daysInput')?.value || 0) || undefined
-            const rsp = await axios.get('http://localhost:8009/api/report', { params: { date, platform: platform||undefined, account: account||undefined, days, page, page_size: pageSize } })
+            const mode = document.getElementById('modeSelect').value || 'day'
+            const days = mode==='day' ? (Number(document.getElementById('daysInput')?.value || 0) || undefined) : undefined
+            const weeks = mode==='week' ? (Number(document.getElementById('weeksInput')?.value || 0) || undefined) : undefined
+            const months = mode==='month' ? (Number(document.getElementById('monthsInput')?.value || 0) || undefined) : undefined
+            const rsp = await axios.get('http://localhost:8009/api/report', { params: { mode, date, platform: platform||undefined, account: account||undefined, days, weeks, months, page, page_size: pageSize } })
             setData(rsp.data)
           } finally {
             setLoading(false)
           }
         }
-        useEffect(()=>{ fetchData() }, [date, platform, account, page])
+        useEffect(()=>{
+          const modeEl = document.getElementById('modeSelect')
+          const daysBox = document.getElementById('daysBox')
+          const weeksBox = document.getElementById('weeksBox')
+          const monthsBox = document.getElementById('monthsBox')
+          function syncBoxes(){
+            const m = modeEl.value
+            daysBox.style.display = (m==='day') ? '' : 'none'
+            weeksBox.style.display = (m==='week') ? '' : 'none'
+            monthsBox.style.display = (m==='month') ? '' : 'none'
+          }
+          modeEl.addEventListener('change', syncBoxes)
+          syncBoxes()
+          fetchData()
+          return ()=> modeEl.removeEventListener('change', syncBoxes)
+        }, [date, platform, account, page])
         const rows = useMemo(()=> data?.rows ?? [], [data])
 
         return (
           <div className="container">
             <h2>Ozon 运营报表（按商品、按日透视）</h2>
-            <div className="toolbar">
+      <div className="toolbar">
               <label>选择日期：<input type="date" value={date} onChange={e=>setDate(e.target.value)} /></label>
               <label>平台：
                 <select value={platform} onChange={e=>setPlatform(e.target.value)}>
@@ -187,7 +205,16 @@
                 </select>
               </label>
               <label>账号：<input value={account} onChange={e=>setAccount(e.target.value)} placeholder="可选" /></label>
-              <label>展示天数：<input id="daysInput" type="number" min="1" max="62" defaultValue={12} style={{width:'80px'}} /></label>
+              <label>展示模式：
+                <select id="modeSelect" defaultValue="day">
+                  <option value="day">日</option>
+                  <option value="week">周</option>
+                  <option value="month">月</option>
+                </select>
+              </label>
+              <label id="daysBox">展示天数：<input id="daysInput" type="number" min="1" max="62" defaultValue={12} style={{width:'80px'}} /></label>
+              <label id="weeksBox" style={{display:'none'}}>展示周数：<input id="weeksInput" type="number" min="1" max="26" defaultValue={12} style={{width:'80px'}} /></label>
+              <label id="monthsBox" style={{display:'none'}}>展示月数：<input id="monthsInput" type="number" min="1" max="24" defaultValue={12} style={{width:'80px'}} /></label>
               <button disabled={loading} onClick={fetchData}>{loading ? '加载中...' : '刷新'}</button>
               <button disabled={!data || loading} onClick={() => {
                 if(!data){ alert('暂无数据'); return }
@@ -197,9 +224,9 @@
                   '大类目': r.category,
                   '中文类目': r.name_cn,
                   '类目名称': r.sku,
-                  '12日销量': r.summary_12d?.sales_qty ?? 0,
-                  '12日销售额': r.summary_12d?.sales_amount ?? 0,
-                  '12日广告占比': r.summary_12d?.ad_ratio ?? 0,
+                  '汇总销量': r.summary_12d?.sales_qty ?? 0,
+                  '汇总销售额': r.summary_12d?.sales_amount ?? 0,
+                  '汇总广告占比': r.summary_12d?.ad_ratio ?? 0,
                   '12日广告销量占比': r.summary_12d?.ad_sales_ratio ?? 0,
                   'OzonID': r.ozon_id,
                   '平台': r.platform,
@@ -251,7 +278,7 @@
                 ]
                 // 左侧固定列 + 12日汇总分组（更贴近网页：汇总作为分组标题）
                 const baseLeft = ['大类目','中文类目','类目名称','OzonID','平台','账号']
-                const sumGroup = ['12日销量','12日销售额','12日广告占比','12日广告销量占比']
+                const sumGroup = ['汇总销量','汇总销售额','汇总广告占比','12日广告销量占比']
                 const header1 = [...baseLeft, '12日汇总']
                 const header2 = baseLeft.map(()=> '')
                 sumGroup.forEach((h, idx)=>{ header1.push(idx === 0 ? '' : ''); header2.push(h) })
@@ -314,28 +341,33 @@
                 const metrics = ['销量','广告','自然','销售额','售价','成本','销售成本','广告费','回款','利润','库存','广告占比']
                 const metricKeys = ['total_sales_qty','ad_sales_qty','natural_sales_qty','sales_amount','avg_price','goods_cost','sales_cost','ad_spend','payout','profit','inventory','ad_ratio']
                 const leftFixed = ['大类目','中文类目','类目名称']
-                const sumHeaders = ['12日销量','12日销售额','12日广告占比']
+                const sumHeaders = ['汇总销量','汇总销售额','汇总广告占比']
                 const leftTail = ['Ozon ID','产品图片','类别']
 
                 // 动态天数
+                const mode = data.mode || 'day'
                 const dayDates = (rows[0]?.days ?? []).map(d=>d.date)
+                const periodLabels = data.period_labels || []
 
                 // 列宽
                 const baseWidths = [12,16,22,10,10,10,14,14,10]
                 const cols = baseWidths.map(w=>({ width: w }))
-                // 追加日列宽（每个“天”仅一列）
-                for(let i=0;i<dayDates.length;i++){ cols.push({ width: 12 }) }
+                // 追加列宽（天/周均为1列）
+                for(let i=0;i<dayDates.length;i++){ cols.push({ width: 14 }) }
                 ws.columns = cols
 
                 // 表头两行
                 // Row1 + Row2 headers
-                const header1 = [...leftFixed, '12日汇总', '', '', ...leftTail]
+                const header1 = [...leftFixed, (mode==='week' ? '近N周汇总' : (mode==='month' ? '近N月汇总' : '12日汇总')), '', '', ...leftTail]
                 const header2 = leftFixed.map(()=> '')
                 header2.push(...sumHeaders)
                 header2.push('', '', '') // OzonID/图片/类别 第二行占位
                 for(let i=0;i<dayDates.length;i++){
-                  const dText = dayDates[i] ? `第${i+1}天\n${dayDates[i]}` : `第${i+1}天`
-                  header1.push(dText)
+                  let label
+                  if(mode==='week') label = periodLabels[i] ? `第${i+1}周\n${periodLabels[i]}` : `第${i+1}周`
+                  else if(mode==='month') label = periodLabels[i] ? `第${i+1}月\n${periodLabels[i]}` : `第${i+1}月`
+                  else label = dayDates[i] ? `第${i+1}天\n${dayDates[i]}` : `第${i+1}天`
+                  header1.push(label)
                   header2.push('') // 每个“天”仅占一列，第二行留空用于纵向合并
                 }
                 ws.addRow(header1)
@@ -414,13 +446,14 @@
                   rowPtr += blockRows
                 }
 
-                // 设置左侧 12日广告占比 列为百分比
+                // 设置左侧 汇总广告占比 列为百分比
                 for(let r=3; r<rowPtr; r++){
                   const c = 6; const cell = ws.getCell(r,c); if(typeof cell.value === 'number'){ cell.numFmt = '0.00%' }
                 }
 
-                const daysVal = Number(document.getElementById('daysInput')?.value || data.days_count)
-                const fname = `Ozon运营报表_宽表样式_${data.start}_${data.end}_${daysVal}天.xlsx`
+                const unit = mode==='week' ? '周' : (mode==='month' ? '月' : '天')
+                const numVal = mode==='week' ? (Number(document.getElementById('weeksInput')?.value || data.days_count)) : (mode==='month' ? (Number(document.getElementById('monthsInput')?.value || data.days_count)) : (Number(document.getElementById('daysInput')?.value || data.days_count)))
+                const fname = `Ozon运营报表_宽表样式_${data.start}_${data.end}_${numVal}${unit}.xlsx`
                 const buffer = await wb.xlsx.writeBuffer()
                 saveAs(new Blob([buffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fname)
               }}>导出宽表(样式)</button>
@@ -428,14 +461,14 @@
             </div>
             <ReportTable rows={rows} />
             {data && (
-              <div className="toolbar" style={{justifyContent:'flex-end'}}>
-                <button onClick={()=>setPage(p=>Math.max(1, p-1))} disabled={page<=1 || loading}>上一页</button>
-                <span className="meta">第 {page} / {Math.max(1, Math.ceil((data.total||0)/pageSize))} 页</span>
-                <button onClick={()=>setPage(p=>p+1)} disabled={loading || page >= Math.ceil((data.total||0)/pageSize)}>下一页</button>
-              </div>
-            )}
-          </div>
-        )
+            <div className="toolbar" style={{justifyContent:'flex-end'}}>
+              <button onClick={()=>setPage(p=>Math.max(1, p-1))} disabled={page<=1 || loading}>上一页</button>
+              <span className="meta">第 {page} / {Math.max(1, Math.ceil((data.total||0)/pageSize))} 页</span>
+              <button onClick={()=>setPage(p=>p+1)} disabled={loading || page >= Math.ceil((data.total||0)/pageSize)}>下一页</button>
+            </div>
+          )}
+        </div>
+      )
       }
 
       ReactDOM.createRoot(document.getElementById('root')).render(<App />)

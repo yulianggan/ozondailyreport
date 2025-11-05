@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
 
 
 class DayMetrics(BaseModel):
-    date: date
+    # 日模式为日期，周模式可返回字符串标签或周起始日期
+    date: Union[date, str]
     total_sales_qty: int = 0
     ad_sales_qty: int = 0
     natural_sales_qty: int = 0
@@ -50,4 +51,5 @@ class ReportResponse(BaseModel):
     page_size: int
     total: int
     rows: List[ReportRow]
-
+    mode: str = "day"  # day | week
+    period_labels: List[str] = []  # 周模式时：每列对应的“YYYY-MM-DD ~ YYYY-MM-DD”
